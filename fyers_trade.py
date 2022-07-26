@@ -1,11 +1,11 @@
 import os
-from re import L
 import requests
 from urllib.parse import urlparse, parse_qs
 from fyers_api import accessToken
 from fyers_api import fyersModel
 from dotenv import load_dotenv
 import pandas as pd
+import time
 
 DOTENV_PATH = os.path.join(os.path.dirname(__file__), ".env")
 load_dotenv(DOTENV_PATH)
@@ -69,7 +69,7 @@ class FyersTrade:
         token = response["access_token"]
         print("Got the fyers access token!")
 
-        fyers = fyersModel.FyersModel(client_id=self._client_id, token=token)
+        fyers = fyersModel.FyersModel(client_id=self._client_id, token=token, log_path=os.getcwd())
         return fyers
 
     def get_historical_data(self, symbol, resolution, range_from, range_to, cont_flag = "1", date_format = "0"):
@@ -97,8 +97,9 @@ class FyersTrade:
                         final_df = df
                     else:
                         final_df = pd.concat([final_df, df]).drop_duplicates()
-            final_df['datetime'] = pd.to_datetime(final_df['datetime'],unit='s')
-            final_df['datetime'] = final_df['datetime'].dt.tz_localize('UTC').dt.tz_convert('Asia/Kolkata')
+            if final_df is not None and not final_df.empty:
+                final_df['datetime'] = pd.to_datetime(final_df['datetime'],unit='s')
+                final_df['datetime'] = final_df['datetime'].dt.tz_localize('UTC').dt.tz_convert('Asia/Kolkata')
             return final_df
         data = {
             "symbol": symbol,
@@ -109,9 +110,16 @@ class FyersTrade:
             "cont_flag": cont_flag
             }
         resp = self._fyers_obj.history(data)
-        if "s" in resp and resp["s"] == "ok":
+        if resp and "s" in resp and resp["s"] == "ok":
             return pd.DataFrame(resp["candles"], columns=["datetime", "open", "high", "low", "close", "vol"])
-
+        elif resp and "s" in resp and resp["s"] == "error" and "Limit" in resp["message"]:
+            time.sleep(30)
+            resp = self._fyers_obj.history(data)
+            if resp and "s" in resp and resp["s"] == "ok":
+                return pd.DataFrame(resp["candles"], columns=["datetime", "open", "high", "low", "close", "vol"])
+            elif resp and "s" in resp and resp["s"] == "error" and "Limit" in resp["message"]:
+                print("TOO MANY ERRORS")
+                exit()
         print(resp)
         return None
 
